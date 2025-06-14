@@ -6,6 +6,20 @@
  */
 #pragma once
 
+
+
+
+#ifdef _WIN32
+#ifndef _MSC_VER // 仅适用于 Windows 上的 MinGW/GCC，MSVC 有其自己的处理方式
+#include <malloc.h> // 用于 _aligned_malloc 和 _aligned_free
+#endif
+#endif
+
+
+
+
+
+
 /**
  * Top level include file for FBGEMM.
  */
@@ -1486,7 +1500,9 @@ FBGEMM_API bool takePointWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p);
  */
 static void* fbgemmAlignedAlloc(size_t __align, size_t __size) {
   void* aligned_mem;
-#ifdef _MSC_VER
+// #ifdef _MSC_VER
+#if defined(_MSC_VER) || (defined(_WIN32) && !defined(_MSC_VER)) // 适用于 MSVC 或 Windows 上的 MinGW/GCC
+
   aligned_mem = _aligned_malloc(__size, __align);
 #else
   if (posix_memalign(&aligned_mem, __align, __size))

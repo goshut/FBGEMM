@@ -6,6 +6,17 @@
  */
 #pragma once
 
+
+
+#ifdef _WIN32
+#ifndef _MSC_VER // 仅适用于 Windows 上的 MinGW/GCC
+#include <malloc.h> // 用于 _aligned_malloc
+#include <errno.h>  // 用于 ENOMEM (模拟 posix_memalign 返回值)
+#endif
+#endif
+
+
+
 // WARNING: this is a legacy fp16 fbgemm implementation and will soon be
 // upgraded to match with new fbgemm interface.
 
@@ -117,7 +128,8 @@ class PackedGemmMatrixFP16 {
     // allocate and initialize packed memory
     const int padding = 1024; // required by sw pipelined kernels
     size_ = (blockRowSize() * nbrow_) * (blockColSize() * nbcol_);
-#ifdef _MSC_VER
+// #ifdef _MSC_VER
+#if defined(_MSC_VER) || (defined(_WIN32) && !defined(_MSC_VER))
     pmat_ = (float16 *)_aligned_malloc(matSize() * sizeof(float16) +
       padding, 64);
 #else
