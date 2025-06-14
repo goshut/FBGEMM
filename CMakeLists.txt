@@ -7,9 +7,28 @@ include(GNUInstallDirs)
 
 project(fbgemm VERSION 0.1 LANGUAGES CXX C)
 
+
+# 强制使用静态库类型
+set(FBGEMM_LIBRARY_TYPE "static" CACHE STRING
+  "Type of library (shared, static, or default) to build" FORCE)
+
+
+
 set(FBGEMM_LIBRARY_TYPE "default" CACHE STRING
   "Type of library (shared, static, or default) to build")
 set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS default static shared)
+
+
+
+
+add_compile_definitions(
+    _WIN32
+    FBGEMM_API=
+)
+
+
+
+
 option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 
@@ -113,9 +132,76 @@ set(FBGEMM_PUBLIC_HEADERS include/fbgemm/Fbgemm.h
                           include/fbgemm/FbgemmI8Spmdm.h)
 
 
+
+# --- START MODIFICATION for MinGW-w64 posix_memalign function ---
+set(FBGEMM_MINGW_PATCH_SOURCES "")
+if(WIN32 AND NOT MSVC)
+    message(STATUS "Adding MinGW-w64 specific posix_memalign wrapper for FBGEMM.")
+    set(FBGEMM_MINGW_PATCH_SOURCES "src/fbgemm_mingw_patch.cc")
+endif()
+# --- END MODIFICATION for MinGW-w64 posix_memalign function ---
+
+if(WIN32 AND NOT MSVC)
+    message(STATUS "Adding src/fbgemm_mingw_patch.cc to FBGEMM specific source lists.")
+    list(APPEND FBGEMM_GENERIC_SRCS src/fbgemm_mingw_patch.cc)
+
+    # 仅当相应的 AVX2/AVX512 目标被构建时才添加
+    if(FBGEMM_BUILD_AVX2)
+        list(APPEND FBGEMM_AVX2_SRCS src/fbgemm_mingw_patch.cc)
+    endif()
+    if(FBGEMM_BUILD_AVX512)
+        list(APPEND FBGEMM_AVX512_SRCS src/fbgemm_mingw_patch.cc)
+    endif()
+    # 如果还有其他类似的 FBGEMM_*_SRCS 变量，也请在这里添加
+endif()
+
+
+
+
+
+
+
+
 add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
 add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS})
 add_library(fbgemm_avx512 OBJECT ${FBGEMM_AVX512_SRCS})
+
+
+
+
+# --- NEW MODIFICATION: Apply patch header inclusion to all FBGEMM targets ---
+# 这个块必须在 add_library 命令之后，以确保目标已经创建。
+if(WIN32 AND NOT MSVC)
+    message(STATUS "Applying MinGW-w64 posix_memalign header patch to FBGEMM targets.")
+    # 明确列出所有需要打补丁的 FBGEMM OBJECT 库目标
+    # 这些目标是总是被 add_library 创建的，不需要依赖 FBGEMM_BUILD_AVX2 等内部变量
+    set(FBGEMM_ALL_TARGETS fbgemm_generic fbgemm_avx2 fbgemm_avx512)
+
+    foreach(TARGET_NAME IN LISTS FBGEMM_ALL_TARGETS)
+        # 此时，if(TARGET ${TARGET_NAME}) 应该总是为 TRUE
+        if(TARGET ${TARGET_NAME})
+            message(STATUS "Patching target: ${TARGET_NAME} with fbgemm_mingw_patch.h")
+            # 添加包含路径，以便编译器能找到 fbgemm_mingw_patch.h
+            target_include_directories(${TARGET_NAME} PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            )
+            # 强制在编译每个源文件时包含 fbgemm_mingw_patch.h
+            target_compile_options(${TARGET_NAME} PRIVATE -include fbgemm_mingw_patch.h)
+            # 额外添加一个定义，以防 FBGEMM.h 内部有其他针对 MSVC 的条件编译
+            # 虽然我们已经有了 fbgemm_mingw_patch.h，但多一层保障
+            target_compile_definitions(${TARGET_NAME} PRIVATE FBGEMM_USE_ALIGNED_MALLOC)
+        else()
+            # 如果出现这个错误，说明 FBGEMM_ALL_TARGETS 列表有问题，或者目标未被创建
+            message(FATAL_ERROR "Target ${TARGET_NAME} does not exist, despite being listed. CMake logic error.")
+        endif()
+    endforeach()
+endif()
+# --- END NEW MODIFICATION ---
+
+
+
+
+
 
 set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
       CXX_STANDARD 11
